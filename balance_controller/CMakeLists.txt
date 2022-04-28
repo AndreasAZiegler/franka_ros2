@@ -11,17 +11,9 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 find_package(ament_cmake REQUIRED)
-#find_package(angles REQUIRED)
-#find_package(controller_interface REQUIRED)
 find_package(forward_command_controller REQUIRED)
-#find_package(control_msgs REQUIRED)
-#find_package(hardware_interface REQUIRED)
 find_package(pluginlib REQUIRED)
 find_package(rclcpp REQUIRED)
-#find_package(rclcpp_lifecycle REQUIRED)
-#find_package(realtime_tools REQUIRED)
-#find_package(trajectory_msgs REQUIRED)
-#find_package(control_toolbox REQUIRED)
 find_package(ball_tracker_msgs REQUIRED)
 find_package(Eigen3 REQUIRED)
 
@@ -30,20 +22,11 @@ add_library(balance_controller SHARED
         )
 target_include_directories(balance_controller PUBLIC include ${EIGEN3_INCLUDE_DIRS})
 ament_target_dependencies(balance_controller
-	#angles
-	#builtin_interfaces
 	forward_command_controller
-	#controller_interface
-	#control_msgs
-	#hardware_interface
-        pluginlib
-        rclcpp
-	#rclcpp_lifecycle
-	#realtime_tools
-	#trajectory_msgs
-	#control_toolbox
-        ball_tracker_msgs
-        )
+  pluginlib
+  rclcpp
+  ball_tracker_msgs
+  )
 
 pluginlib_export_plugin_description_file(controller_interface balance_controller.xml)
 

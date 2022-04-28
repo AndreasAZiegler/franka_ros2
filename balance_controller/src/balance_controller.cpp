@@ -19,6 +19,13 @@
 
 namespace balance_controller {
 
+
+BalanceController::BalanceController()
+: tracking_sub_{node_->create_subscription<ball_tracker_msgs::msg::TrackingUpdate>(
+          "/camera1/tracking_update",
+          500,
+          std::bind(&BalanceController::tracking_callback, this, std::placeholders::_1))} {}
+
 controller_interface::InterfaceConfiguration
 BalanceController::command_interface_configuration() const {
   controller_interface::InterfaceConfiguration config;
@@ -115,6 +122,13 @@ void BalanceController::updateJointStates() {
 
     joint_positions_(i) = position_interface.get_value();
   }
+}
+
+void BalanceController::tracking_callback(
+    const ball_tracker_msgs::msg::TrackingUpdate::SharedPtr msg)
+{
+  current_position_.x = msg->x;
+  current_position_.y = msg->y;
 }
 
 }  // namespace franka_example_controllers

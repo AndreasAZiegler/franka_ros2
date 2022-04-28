@@ -20,6 +20,13 @@
 #include <controller_interface/controller_interface.hpp>
 #include <rclcpp/duration.hpp>
 #include <rclcpp/time.hpp>
+#include <ball_tracker_msgs/msg/tracking_update.hpp>
+
+struct Position
+{
+  int x;
+  int y;
+};
 
 namespace balance_controller {
 
@@ -31,6 +38,8 @@ class BalanceController : public controller_interface::ControllerInterface {
  public:
   using Vector7d = Eigen::Matrix<double, 7, 1>;
 
+  BalanceController();
+
   CallbackReturn on_configure(const rclcpp_lifecycle::State& previous_state) override;
   controller_interface::return_type init(const std::string& controller_name) override;
   controller_interface::InterfaceConfiguration command_interface_configuration() const override;
@@ -39,6 +48,12 @@ class BalanceController : public controller_interface::ControllerInterface {
 
  private:
   void updateJointStates();
+
+  void tracking_callback(const ball_tracker_msgs::msg::TrackingUpdate::SharedPtr msg);
+
+  rclcpp::Subscription<ball_tracker_msgs::msg::TrackingUpdate>::SharedPtr tracking_sub_;
+
+  Position current_position_;
 
   Vector7d joint_positions_;
   std::string arm_id_;

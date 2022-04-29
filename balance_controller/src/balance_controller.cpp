@@ -21,10 +21,7 @@ namespace balance_controller {
 
 
 BalanceController::BalanceController()
-: tracking_sub_{node_->create_subscription<ball_tracker_msgs::msg::TrackingUpdate>(
-          "/camera1/tracking_update",
-          500,
-          std::bind(&BalanceController::tracking_callback, this, std::placeholders::_1))} {}
+: controller_interface::ControllerInterface() {}
 
 controller_interface::InterfaceConfiguration
 BalanceController::command_interface_configuration() const {
@@ -98,10 +95,16 @@ BalanceController::on_configure(
 
 controller_interface::return_type BalanceController::init(
     const std::string& controller_name) {
-  auto ret = ControllerInterface::init(controller_name);
+
+  const auto ret = ControllerInterface::init(controller_name);
   if (ret != controller_interface::return_type::OK) {
     return ret;
   }
+
+  tracking_sub_ = node_->create_subscription<ball_tracker_msgs::msg::TrackingUpdate>(
+          "/camera1/tracking_update",
+          rclcpp::SystemDefaultsQoS(),
+          std::bind(&BalanceController::tracking_callback, this, std::placeholders::_1));
 
   try {
     auto_declare<std::string>("arm_id", "panda");
@@ -132,6 +135,7 @@ void BalanceController::tracking_callback(
 }
 
 }  // namespace franka_example_controllers
+
 #include "pluginlib/class_list_macros.hpp"
 // NOLINTNEXTLINE
 PLUGINLIB_EXPORT_CLASS(balance_controller::BalanceController,

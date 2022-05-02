@@ -17,31 +17,31 @@
 #include <exception>
 #include <string>
 
-namespace balance_controller {
+namespace balance_controller
+{
+BalanceController::BalanceController() : controller_interface::ControllerInterface()
+{
+}
 
-
-BalanceController::BalanceController()
-: controller_interface::ControllerInterface() {}
-
-controller_interface::InterfaceConfiguration
-BalanceController::command_interface_configuration() const {
+controller_interface::InterfaceConfiguration BalanceController::command_interface_configuration() const
+{
   controller_interface::InterfaceConfiguration config;
   config.type = controller_interface::interface_configuration_type::INDIVIDUAL;
 
-  for (int i = 1; i <= num_joints; ++i) {
+  for (int i = 1; i <= num_joints; ++i)
+  {
     config.names.push_back(arm_id_ + "_joint" + std::to_string(i) + "/effort");
   }
   return config;
 }
 
-controller_interface::InterfaceConfiguration
-BalanceController::state_interface_configuration() const {
+controller_interface::InterfaceConfiguration BalanceController::state_interface_configuration() const
+{
   return {};
 }
 
-controller_interface::return_type BalanceController::update() {
-  updateJointStates();
-
+controller_interface::return_type BalanceController::update()
+{
   /*
   auto now = std::chrono::system_clock::now();
   delta_t_ = (now - last_update_time_stamp_).count();
@@ -70,53 +70,117 @@ controller_interface::return_type BalanceController::update() {
       k_p * current_position_.x + k_i * x_prev_error_integral_ + k_d * x_error_derivative;
   auto y_delta =
       k_p * current_position_.y + k_i * y_prev_error_integral_ + k_d * y_error_derivative;
+  */
+
+  updateJointStates();
+
+  if ((position_goal_ - joint_positions_).norm() < 0.05)
+  {
+    return controller_interface::return_type::OK;
+  }
+  std::cout << "(position_goal_ - joint_positions_).norm(): " << (position_goal_ - joint_positions_).norm() << std::endl;
+
+  auto time = this->node_->now() - start_time_;
+  //double delta_angle = M_PI / 12.0 * (1 - std::cos(M_PI / 2.5 * time.seconds()));
+
+  //std::cout << "joint_positions_: " << joint_positions_ << std::endl;
+  //std::cout << "position_goal: " << position_goal << std::endl;
+
+  const double kAlpha = 0.99;
+  joint_velocities_filtered_ = (1 - kAlpha) * joint_velocities_filtered_ + kAlpha * joint_velocities_;
+  Vector7d tau_d_calculated =
+      k_gains_.cwiseProduct(position_goal_ - joint_positions_);// + d_gains_.cwiseProduct(-joint_velocities_filtered_);
+
+  std::cout << "joint_positions_(6): " << joint_positions_(6) << std::endl;
+  std::cout << "position_goal_(6): " << position_goal_(6) << std::endl;
+  std::cout << "k_gains_.cwiseProduct(position_goal_ - joint_positions_)(6): " << k_gains_.cwiseProduct(position_goal_ - joint_positions_)(6) << std::endl;
+  std::cout << "d_gains_.cwimeProduct(-joint_velocities_filtered_)(6): " << d_gains_.cwiseProduct(-joint_velocities_filtered_)(6) << std::endl;
+
+  for (int i = 5; i < num_joints; ++i)
+  {
+    if (std::fabs(tau_d_calculated(i)) > .3)
+    {
+      std::cout << "tau_d_calculated(" << i << "): " << tau_d_calculated(i) << std::endl;
+    }
+    command_interfaces_[i].set_value(tau_d_calculated(i));
+  }
 
   /*
-  for (auto& command_interface : command_interfaces_) {
+  for (auto& command_interface : command_interfaces_)
+  {
     command_interface.set_value(0);
   }
-  */
-  //command_interfaces_[0].set_value(joint_positions_[0]-0.0005);
-  for (auto& command_interface : command_interfaces_) {
-    command_interface.set_value(0);
-  }
-  //command_interfaces_.at(6).set_value(-0.6);
+  // command_interfaces_.at(6).set_value(-0.6);
   command_interfaces_.at(5).set_value(1.25);
+  */
 
   return controller_interface::return_type::OK;
 }
 
 rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
-BalanceController::on_configure(
-    const rclcpp_lifecycle::State& /*previous_state*/) {
+BalanceController::on_configure(const rclcpp_lifecycle::State& /*previous_state*/)
+{
   arm_id_ = node_->get_parameter("arm_id").as_string();
+
+  auto k_gains = node_->get_parameter("k_gains").as_double_array();
+  auto d_gains = node_->get_parameter("d_gains").as_double_array();
+  if (k_gains.empty()) {
+    RCLCPP_FATAL(node_->get_logger(), "k_gains parameter not set");
+    return CallbackReturn::FAILURE;
+  }
+  if (k_gains.size() != static_cast<uint>(num_joints)) {
+    RCLCPP_FATAL(node_->get_logger(), "k_gains should be of size %d but is of size %d", num_joints,
+                 k_gains.size());
+    return CallbackReturn::FAILURE;
+  }
+  if (d_gains.empty()) {
+    RCLCPP_FATAL(node_->get_logger(), "d_gains parameter not set");
+    return CallbackReturn::FAILURE;
+  }
+  if (d_gains.size() != static_cast<uint>(num_joints)) {
+    RCLCPP_FATAL(node_->get_logger(), "d_gains should be of size %d but is of size %d", num_joints,
+                 d_gains.size());
+    return CallbackReturn::FAILURE;
+  }
+  for (int i = 0; i < num_joints; ++i) {
+    d_gains_(i) = d_gains.at(i);
+    k_gains_(i) = k_gains.at(i);
+  }
+
+  joint_velocities_filtered_.setZero();
   return CallbackReturn::SUCCESS;
 }
 
-controller_interface::return_type BalanceController::init(
-    const std::string& controller_name) {
-
+controller_interface::return_type BalanceController::init(const std::string& controller_name)
+{
   const auto ret = ControllerInterface::init(controller_name);
-  if (ret != controller_interface::return_type::OK) {
+  if (ret != controller_interface::return_type::OK)
+  {
     return ret;
   }
 
   tracking_sub_ = node_->create_subscription<ball_tracker_msgs::msg::TrackingUpdate>(
-          "/camera1/tracking_update",
-          rclcpp::SystemDefaultsQoS(),
-          std::bind(&BalanceController::tracking_callback, this, std::placeholders::_1));
+      "/camera1/tracking_update", rclcpp::SystemDefaultsQoS(),
+      std::bind(&BalanceController::tracking_callback, this, std::placeholders::_1));
 
-  try {
+  try
+  {
     auto_declare<std::string>("arm_id", "panda");
-  } catch (const std::exception& e) {
+    auto_declare<std::vector<double>>("k_gains", {});
+    auto_declare<std::vector<double>>("d_gains", {});
+  }
+  catch (const std::exception& e)
+  {
     fprintf(stderr, "Exception thrown during init stage with message: %s \n", e.what());
     return controller_interface::return_type::ERROR;
   }
   return controller_interface::return_type::OK;
 }
 
-void BalanceController::updateJointStates() {
-  for (auto i = 0; i < num_joints; ++i) {
+void BalanceController::updateJointStates()
+{
+  for (auto i = 0; i < num_joints; ++i)
+  {
     const auto& position_interface = state_interfaces_.at(2 * i);
     const auto& velocity_interface = state_interfaces_.at(2 * i + 1);
 
@@ -124,19 +188,32 @@ void BalanceController::updateJointStates() {
     assert(velocity_interface.get_interface_name() == "velocity");
 
     joint_positions_(i) = position_interface.get_value();
+    joint_velocities_(i) = velocity_interface.get_value();
   }
 }
 
-void BalanceController::tracking_callback(
-    const ball_tracker_msgs::msg::TrackingUpdate::SharedPtr msg)
+void BalanceController::tracking_callback(const ball_tracker_msgs::msg::TrackingUpdate::SharedPtr msg)
 {
   current_position_.x = msg->x;
   current_position_.y = msg->y;
 }
 
-}  // namespace franka_example_controllers
+rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
+BalanceController::on_activate(const rclcpp_lifecycle::State& previous_state)
+{
+  updateJointStates();
+  start_time_ = this->node_->now();
+
+  position_goal_ = joint_positions_;
+  double delta_angle = 0.035;
+  //position_goal(5) += delta_angle;
+  position_goal_(6) += delta_angle;
+
+  return CallbackReturn::SUCCESS;
+}
+
+}  // namespace balance_controller
 
 #include "pluginlib/class_list_macros.hpp"
 // NOLINTNEXTLINE
-PLUGINLIB_EXPORT_CLASS(balance_controller::BalanceController,
-                       controller_interface::ControllerInterface)
+PLUGINLIB_EXPORT_CLASS(balance_controller::BalanceController, controller_interface::ControllerInterface)

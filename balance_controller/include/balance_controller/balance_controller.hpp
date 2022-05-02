@@ -45,6 +45,7 @@ class BalanceController : public controller_interface::ControllerInterface {
   controller_interface::InterfaceConfiguration command_interface_configuration() const override;
   controller_interface::InterfaceConfiguration state_interface_configuration() const override;
   controller_interface::return_type update() override;
+  CallbackReturn on_activate(const rclcpp_lifecycle::State& previous_state) override;
 
  private:
   void updateJointStates();
@@ -56,6 +57,16 @@ class BalanceController : public controller_interface::ControllerInterface {
   Position current_position_;
 
   Vector7d joint_positions_;
+  Vector7d joint_velocities_;
+  Vector7d joint_velocities_filtered_;
+
+  Vector7d k_gains_;
+  Vector7d d_gains_;
+
+  rclcpp::Time start_time_;
+
+  Vector7d position_goal_;
+
   std::string arm_id_;
   const int num_joints = 7;
 };

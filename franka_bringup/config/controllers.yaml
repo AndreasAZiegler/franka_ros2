@@ -82,3 +82,22 @@ move_to_start_example_controller:
       - 10.0
       - 10.0
       - 5.
+balance_controller:
+  ros__parameters:
+    arm_id: panda
+    k_gains:
+      - 600.0
+      - 600.0
+      - 600.0
+      - 600.0
+      - 250.0
+      - 10.0
+      - 4.8
+    d_gains:
+      - 2.0
+      - 2.0
+      - 2.0
+      - 1.0
+      - 1.0
+      - 1.0
+      - 0.75

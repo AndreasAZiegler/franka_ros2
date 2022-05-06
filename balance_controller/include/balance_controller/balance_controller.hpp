@@ -35,14 +35,15 @@ struct Position
   int y;
 };
 
-namespace balance_controller {
-
+namespace balance_controller
+{
 /**
  * The gravity compensation controller only sends zero torques so that the robot does gravity
  * compensation
  */
-class BalanceController : public controller_interface::ControllerInterface {
- public:
+class BalanceController : public controller_interface::ControllerInterface
+{
+public:
   using Vector7d = Eigen::Matrix<double, 7, 1>;
 
   BalanceController();
@@ -54,7 +55,7 @@ class BalanceController : public controller_interface::ControllerInterface {
   controller_interface::return_type update() override;
   CallbackReturn on_activate(const rclcpp_lifecycle::State& previous_state) override;
 
- private:
+private:
   void updateJointStates();
 
   void tracking_callback(const ball_tracker_msgs::msg::TrackingUpdate::SharedPtr msg);
@@ -63,13 +64,11 @@ class BalanceController : public controller_interface::ControllerInterface {
 
   void position_callback(const std_msgs::msg::Float32::SharedPtr msg);
 
-  rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr joint_position_subscriber_ =
-    nullptr;
+  rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr joint_position_subscriber_ = nullptr;
 
   using JointTrajectoryPoint = trajectory_msgs::msg::JointTrajectoryPoint;
-  void publish_state(
-    const JointTrajectoryPoint & desired_state, const JointTrajectoryPoint & current_state,
-    const JointTrajectoryPoint & state_error);
+  void publish_state(const JointTrajectoryPoint& desired_state, const JointTrajectoryPoint& current_state,
+                     const JointTrajectoryPoint& state_error);
 
   using ControllerStateMsg = control_msgs::msg::JointTrajectoryControllerState;
   using StatePublisher = realtime_tools::RealtimePublisher<ControllerStateMsg>;

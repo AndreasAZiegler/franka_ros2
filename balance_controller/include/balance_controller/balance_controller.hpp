@@ -21,6 +21,7 @@
 #include <rclcpp/duration.hpp>
 #include <rclcpp/time.hpp>
 #include <ball_tracker_msgs/msg/tracking_update.hpp>
+#include <std_msgs/msg/float32.hpp>
 
 struct Position
 {
@@ -54,6 +55,10 @@ class BalanceController : public controller_interface::ControllerInterface {
 
   rclcpp::Subscription<ball_tracker_msgs::msg::TrackingUpdate>::SharedPtr tracking_sub_;
 
+  void position_callback(const std_msgs::msg::Float32::SharedPtr msg);
+
+  rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr joint_position_subscriber_ =
+    nullptr;
   Position current_position_;
 
   Vector7d joint_positions_;

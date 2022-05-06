@@ -163,6 +163,8 @@ controller_interface::return_type BalanceController::init(const std::string& con
       "/camera1/tracking_update", rclcpp::SystemDefaultsQoS(),
       std::bind(&BalanceController::tracking_callback, this, std::placeholders::_1));
 
+  joint_position_subscriber_ = node_->create_subscription<std_msgs::msg::Float32>("joint_position", rclcpp::SystemDefaultsQoS(), std::bind(&BalanceController::position_callback, this, std::placeholders::_1));
+
   try
   {
     auto_declare<std::string>("arm_id", "panda");
@@ -198,6 +200,12 @@ void BalanceController::tracking_callback(const ball_tracker_msgs::msg::Tracking
   current_position_.y = msg->y;
 }
 
+
+void BalanceController::position_callback(const std_msgs::msg::Float32::SharedPtr msg)
+{
+  position_goal_(6) = msg->data;
+}
+
 rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
 BalanceController::on_activate(const rclcpp_lifecycle::State& previous_state)
 {
@@ -207,7 +215,7 @@ BalanceController::on_activate(const rclcpp_lifecycle::State& previous_state)
   position_goal_ = joint_positions_;
   double delta_angle = 0.035;
   //position_goal(5) += delta_angle;
-  position_goal_(6) += delta_angle;
+  //position_goal_(6) += delta_angle;
 
   return CallbackReturn::SUCCESS;
 }

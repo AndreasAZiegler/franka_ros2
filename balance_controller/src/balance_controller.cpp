@@ -74,11 +74,21 @@ controller_interface::return_type BalanceController::update()
 
   updateJointStates();
 
-  if ((position_goal_ - joint_positions_).norm() < 0.05)
+  JointTrajectoryPoint state_current, state_desired, state_error;
+  state_current.positions.resize(num_joints);
+  state_current.velocities.resize(num_joints);
+  state_current.effort.resize(num_joints);
+  state_current.accelerations.resize(num_joints);
+  state_desired.positions.resize(num_joints);
+  state_desired.effort.resize(num_joints);
+  state_desired.accelerations.resize(num_joints);
+  state_error.positions.resize(num_joints);
+
+  Eigen::Matrix<double, 2, 1> difference;
+  difference << position_goal_(5) - joint_positions_(5), position_goal_(6) - joint_positions_(6);
+  if (difference.norm() > 0.05)
   {
-    return controller_interface::return_type::OK;
-  }
-  std::cout << "(position_goal_ - joint_positions_).norm(): " << (position_goal_ - joint_positions_).norm() << std::endl;
+  //std::cout << "(position_goal_ - joint_positions_).norm(): " << (position_goal_ - joint_positions_).norm() << std::endl;
 
   auto time = this->node_->now() - start_time_;
   //double delta_angle = M_PI / 12.0 * (1 - std::cos(M_PI / 2.5 * time.seconds()));
@@ -89,21 +99,25 @@ controller_interface::return_type BalanceController::update()
   const double kAlpha = 0.99;
   joint_velocities_filtered_ = (1 - kAlpha) * joint_velocities_filtered_ + kAlpha * joint_velocities_;
   Vector7d tau_d_calculated =
-      k_gains_.cwiseProduct(position_goal_ - joint_positions_);// + d_gains_.cwiseProduct(-joint_velocities_filtered_);
+      k_gains_.cwiseProduct(position_goal_ - joint_positions_) + d_gains_.cwiseProduct(-joint_velocities_filtered_);
 
+  /*
   std::cout << "joint_positions_(6): " << joint_positions_(6) << std::endl;
   std::cout << "position_goal_(6): " << position_goal_(6) << std::endl;
   std::cout << "k_gains_.cwiseProduct(position_goal_ - joint_positions_)(6): " << k_gains_.cwiseProduct(position_goal_ - joint_positions_)(6) << std::endl;
   std::cout << "d_gains_.cwimeProduct(-joint_velocities_filtered_)(6): " << d_gains_.cwiseProduct(-joint_velocities_filtered_)(6) << std::endl;
+  */
 
-  for (int i = 5; i < num_joints; ++i)
+  for (int i = 0; i < num_joints; ++i)
   {
-    if (std::fabs(tau_d_calculated(i)) > .3)
-    {
-      std::cout << "tau_d_calculated(" << i << "): " << tau_d_calculated(i) << std::endl;
-    }
     command_interfaces_[i].set_value(tau_d_calculated(i));
+    //state_current.effort.at(i) = tau_d_calculated(i);
+    state_desired.effort.at(i) = tau_d_calculated(i);
   }
+
+  state_desired.accelerations.at(0) = k_gains_.cwiseProduct(position_goal_ - joint_positions_)(6);
+  state_desired.accelerations.at(1) = d_gains_.cwiseProduct(-joint_velocities_filtered_)(6);
+
 
   /*
   for (auto& command_interface : command_interfaces_)
@@ -113,6 +127,24 @@ controller_interface::return_type BalanceController::update()
   // command_interfaces_.at(6).set_value(-0.6);
   command_interfaces_.at(5).set_value(1.25);
   */
+  }
+
+  // current state update
+  state_current.time_from_start.set__sec(0);
+
+  for (auto i = 0; i < num_joints; ++i)
+  {
+    state_current.positions.at(i) = joint_positions_(i);
+    state_current.velocities.at(i) = joint_velocities_(i);
+  }
+
+  state_desired.positions.at(5) = position_goal_(5);
+  state_desired.positions.at(6) = position_goal_(6);
+
+  state_error.positions.at(5) = position_goal_(5) - joint_positions_(5);
+  state_error.positions.at(6) = position_goal_(6) - joint_positions_(6);
+
+  publish_state(state_desired, state_current, state_error);
 
   return controller_interface::return_type::OK;
 }
@@ -148,6 +180,37 @@ BalanceController::on_configure(const rclcpp_lifecycle::State& /*previous_state*
   }
 
   joint_velocities_filtered_.setZero();
+
+  // State publisher
+  //const double state_publish_rate = node_->get_parameter("state_publish_rate").get_value<double>();
+  const double state_publish_rate = 100;
+  RCLCPP_INFO(node_->get_logger(), "Controller state will be published at %.2f Hz.", state_publish_rate);
+  if (state_publish_rate > 0.0)
+  {
+    state_publisher_period_ = rclcpp::Duration::from_seconds(1.0 / state_publish_rate);
+  }
+  else
+  {
+    state_publisher_period_ = rclcpp::Duration::from_seconds(0.0);
+  }
+
+  publisher_ = node_->create_publisher<ControllerStateMsg>("~/state", rclcpp::SystemDefaultsQoS());
+  state_publisher_ = std::make_unique<StatePublisher>(publisher_);
+
+
+  state_publisher_->lock();
+  //state_publisher_->msg_.joint_names = joint_names_;
+  state_publisher_->msg_.desired.positions.resize(num_joints);
+  state_publisher_->msg_.desired.velocities.resize(num_joints);
+  state_publisher_->msg_.desired.accelerations.resize(num_joints);
+  state_publisher_->msg_.actual.positions.resize(num_joints);
+  state_publisher_->msg_.error.positions.resize(num_joints);
+  state_publisher_->msg_.actual.velocities.resize(num_joints);
+  state_publisher_->msg_.error.velocities.resize(num_joints);
+  state_publisher_->unlock();
+
+  last_state_publish_time_ = node_->now();
+
   return CallbackReturn::SUCCESS;
 }
 
@@ -218,6 +281,39 @@ BalanceController::on_activate(const rclcpp_lifecycle::State& previous_state)
   //position_goal_(6) += delta_angle;
 
   return CallbackReturn::SUCCESS;
+}
+
+void BalanceController::publish_state(
+  const JointTrajectoryPoint & desired_state, const JointTrajectoryPoint & current_state,
+  const JointTrajectoryPoint & state_error)
+{
+  if (state_publisher_period_.seconds() <= 0.0)
+  {
+    return;
+  }
+
+  if (node_->now() < (last_state_publish_time_ + state_publisher_period_))
+  {
+    return;
+  }
+
+  if (state_publisher_ && state_publisher_->trylock())
+  {
+    last_state_publish_time_ = node_->now();
+    state_publisher_->msg_.header.stamp = last_state_publish_time_;
+    state_publisher_->msg_.desired.positions = desired_state.positions;
+    state_publisher_->msg_.desired.effort = desired_state.effort;
+    state_publisher_->msg_.desired.velocities = desired_state.velocities;
+    state_publisher_->msg_.desired.accelerations = desired_state.accelerations;
+    state_publisher_->msg_.actual.positions = current_state.positions;
+    state_publisher_->msg_.actual.effort = current_state.effort;
+    state_publisher_->msg_.actual.accelerations = current_state.accelerations;
+    state_publisher_->msg_.error.positions = state_error.positions;
+    state_publisher_->msg_.actual.velocities = current_state.velocities;
+    state_publisher_->msg_.error.velocities = state_error.velocities;
+
+    state_publisher_->unlockAndPublish();
+  }
 }
 
 }  // namespace balance_controller

@@ -21,7 +21,13 @@
 #include <rclcpp/duration.hpp>
 #include <rclcpp/time.hpp>
 #include <ball_tracker_msgs/msg/tracking_update.hpp>
+#include <trajectory_msgs/msg/joint_trajectory.hpp>
+#include <trajectory_msgs/msg/joint_trajectory_point.hpp>
+#include <control_msgs/msg/joint_trajectory_controller_state.hpp>
+#include <realtime_tools/realtime_publisher.h>
 #include <std_msgs/msg/float32.hpp>
+
+using namespace std::chrono_literals;
 
 struct Position
 {
@@ -59,6 +65,21 @@ class BalanceController : public controller_interface::ControllerInterface {
 
   rclcpp::Subscription<std_msgs::msg::Float32>::SharedPtr joint_position_subscriber_ =
     nullptr;
+
+  using JointTrajectoryPoint = trajectory_msgs::msg::JointTrajectoryPoint;
+  void publish_state(
+    const JointTrajectoryPoint & desired_state, const JointTrajectoryPoint & current_state,
+    const JointTrajectoryPoint & state_error);
+
+  using ControllerStateMsg = control_msgs::msg::JointTrajectoryControllerState;
+  using StatePublisher = realtime_tools::RealtimePublisher<ControllerStateMsg>;
+  using StatePublisherPtr = std::unique_ptr<StatePublisher>;
+  rclcpp::Publisher<ControllerStateMsg>::SharedPtr publisher_;
+  StatePublisherPtr state_publisher_;
+
+  rclcpp::Duration state_publisher_period_ = rclcpp::Duration(20ms);
+  rclcpp::Time last_state_publish_time_;
+
   Position current_position_;
 
   Vector7d joint_positions_;
